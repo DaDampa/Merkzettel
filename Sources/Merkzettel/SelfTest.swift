@@ -148,6 +148,12 @@ enum SelfTest {
                 model.add("Eine Notiz", kind: .note, to: linked, under: task)
                 model.addImage(ImageTools.sample(width: 160, height: 96), to: linked, under: task)
             }
+            // A real vault has a ".obsidian" folder at its root; the notes go into a subfolder of it.
+            try? FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
+            let above = vault.appending(path: "Kunden/Kunde.md")
+            try? FileManager.default.createDirectory(at: above.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? "# Kunde".write(to: above, atomically: true, encoding: .utf8)
+            model.obsidianParentOverride = above.path
             model.obsidianOverride = vault.path
             check("no Obsidian link without a vault in Settings", model.obsidianVault == vault.path)
             model.writeObsidian()
@@ -157,18 +163,39 @@ enum SelfTest {
             check("a project becomes a note in the vault with tasks, due date, notes, and pictures",
                   noteText.contains("- [ ] Erste Aufgabe 📅 ") && noteText.contains("\t- Eine Notiz") && noteText.contains("![[Merkzettel-")
                     && noteText.contains("- [ ] Zweite Aufgabe") && attached.count == 1, noteText)
+            let indexText = (try? String(contentsOf: vault.appending(path: "Merkzettel/Merkzettel-Index.md"), encoding: .utf8)) ?? ""
+            check("the index links every project by path and the note above it",
+                  indexText.contains("Übergeordnet: [[Kunden/Kunde|Kunde]]")
+                    && indexText.contains("- [[Merkzettel/Obsidian- Test|Obsidian- Test]] – 2 offene Aufgaben"), indexText)
+            check("a project note links the index", noteText.contains("Übersicht: [[Merkzettel/Merkzettel-Index|Merkzettel-Index]]"))
             if let task = linked.entries(.todo).first {
                 model.archive(task)
                 model.writeObsidian()
                 let after = (try? String(contentsOf: noteFile, encoding: .utf8)) ?? ""
-                check("a done task moves to the archive part of the note", after.contains("## Archiv") && after.contains("- [x] Erste Aufgabe"), after)
+                let archiveNote = vault.appending(path: "Merkzettel/Archiv/Obsidian- Test Archiv.md")
+                let archived = (try? String(contentsOf: archiveNote, encoding: .utf8)) ?? ""
+                check("a done task leaves the project note, which links its archive",
+                      !after.contains("Erste Aufgabe") && after.contains("Archiv: [[Merkzettel/Archiv/Obsidian- Test Archiv|Obsidian- Test Archiv]]"), after)
+                check("the done task stands in the archive note in the archive folder, with notes and picture",
+                      archived.contains("- [x] Erste Aufgabe") && archived.contains("\t- Eine Notiz") && archived.contains("![[Merkzettel-")
+                        && archived.contains("Projekt: [[Merkzettel/Obsidian- Test|Obsidian- Test]]"), archived)
+                model.restore(task)
+                model.writeObsidian()
+                let restored = (try? String(contentsOf: archiveNote, encoding: .utf8)) ?? ""
+                check("a restored task leaves the archive note", restored.contains("Keine erledigten Aufgaben."), restored)
+                task.text = "Erste Aufgabe, geändert"
+                model.writeObsidian()
+                check("changed text reaches the project note",
+                      ((try? String(contentsOf: noteFile, encoding: .utf8)) ?? "").contains("- [ ] Erste Aufgabe, geändert"))
             }
             linked.name = "Umbenannt"
             model.writeObsidian()
-            check("a renamed project takes its note along",
+            check("a renamed project takes its note and its archive note along",
                   !FileManager.default.fileExists(atPath: noteFile.path)
-                    && FileManager.default.fileExists(atPath: vault.appending(path: "Merkzettel/Umbenannt.md").path))
+                    && FileManager.default.fileExists(atPath: vault.appending(path: "Merkzettel/Umbenannt.md").path)
+                    && FileManager.default.fileExists(atPath: vault.appending(path: "Merkzettel/Archiv/Umbenannt Archiv.md").path))
             model.obsidianOverride = nil
+            model.obsidianParentOverride = nil
             model.delete(linked)
             try? FileManager.default.removeItem(at: vault)
 

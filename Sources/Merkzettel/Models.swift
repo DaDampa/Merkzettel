@@ -14,6 +14,8 @@ final class Project {
     var uuid: UUID = UUID()
     /// Where the project's note was written in the Obsidian vault last time, to follow a rename.
     var obsidianNote: String = ""
+    /// The same for the project's archive note.
+    var obsidianArchive: String = ""
     @Relationship(deleteRule: .cascade, inverse: \Entry.project) var entries: [Entry] = []
 
     init(name: String) {
@@ -147,6 +149,8 @@ final class AppModel {
     @ObservationIgnored var rootOverride: String?
     /// Replaces the Obsidian vault from Settings in the self-test.
     @ObservationIgnored var obsidianOverride: String?
+    /// Replaces the note above the index from Settings in the self-test.
+    @ObservationIgnored var obsidianParentOverride: String?
     @ObservationIgnored private var obsidianTask: Task<Void, Never>?
     /// What Settings shows about the Obsidian notes: when they were written, or why not.
     var obsidianStatus = ""
@@ -165,6 +169,8 @@ final class AppModel {
         self.container = container
         let saved = Store.isOverridden ? "" : UserDefaults.standard.string(forKey: "project.selected") ?? ""
         projectID = (projects.first { $0.uuid.uuidString == saved } ?? projects.first)?.id
+        // Brings the vault up to date with what changed while the link was off or the app was closed.
+        scheduleObsidian()
     }
 
     private var context: ModelContext { container.mainContext }
@@ -200,8 +206,30 @@ final class AppModel {
 
     /// The folder for the project notes inside the vault.
     private var obsidianFolder: String {
-        let name = (obsidianOverride == nil ? UserDefaults.standard.string(forKey: "obsidian.folder") : nil) ?? "Merkzettel"
-        return name.split(separator: "/").map { ObsidianNote.fileName(String($0)) }.joined(separator: "/")
+        let name = (obsidianOverride == nil ? UserDefaults.standard.string(forKey: "obsidian.folder") : nil) ?? ""
+        return ObsidianNote.folderPath(name, fallback: "Merkzettel")
+    }
+
+    /// The folder for the archive notes inside the vault, apart from the project notes.
+    private var obsidianArchiveFolder: String {
+        let name = (obsidianOverride == nil ? UserDefaults.standard.string(forKey: "obsidian.archiveFolder") : nil) ?? ""
+        return ObsidianNote.folderPath(name, fallback: "Merkzettel/Archiv")
+    }
+
+    /// The note the index hangs below, as a file path. Empty when none is chosen.
+    private var obsidianParent: String {
+        obsidianOverride != nil ? (obsidianParentOverride ?? "") : (UserDefaults.standard.string(forKey: "obsidian.parent") ?? "")
+    }
+
+    /// The real vault: the nearest folder at or above the chosen one that holds
+    /// Obsidian's ".obsidian" folder. Links by path count from there.
+    static func vaultRoot(of folder: URL) -> URL {
+        var candidate = folder.standardizedFileURL
+        while candidate.path != "/" {
+            if FileManager.default.fileExists(atPath: candidate.appending(path: ".obsidian").path) { return candidate }
+            candidate = candidate.deletingLastPathComponent()
+        }
+        return folder.standardizedFileURL
     }
 
     /// Writes the notes a moment after the last change, so typing does not write on every step.
@@ -209,9 +237,16 @@ final class AppModel {
         guard !obsidianVault.isEmpty, obsidianOverride == nil else { return }
         obsidianTask?.cancel()
         obsidianTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: .seconds(1.2))
             if !Task.isCancelled { self?.writeObsidian() }
         }
+    }
+
+    /// Called on every keystroke in a task or note: the text is saved and goes
+    /// to Obsidian once the typing pauses, without waiting for the field to lose focus.
+    func textChanged() {
+        guard !obsidianVault.isEmpty else { return }
+        scheduleObsidian()
     }
 
     /// The note file of a project in the vault, or nil while the link is off.
@@ -235,9 +270,33 @@ final class AppModel {
         let folder = vault.appending(path: obsidianFolder, directoryHint: .isDirectory)
         let pictures = folder.appending(path: "Anhänge", directoryHint: .isDirectory)
         let includeArchive = obsidianOverride != nil || UserDefaults.standard.object(forKey: "obsidian.archive") as? Bool ?? true
+        let archiveFolder = vault.appending(path: obsidianArchiveFolder, directoryHint: .isDirectory)
+        let root = Self.vaultRoot(of: vault).path
+        /// A link by path from the vault root, so it stays exact when note names repeat.
+        func link(_ file: URL, alias: String) -> String {
+            let path = file.deletingPathExtension().standardizedFileURL.path
+            guard path.hasPrefix(root + "/") else { return ObsidianNote.link(alias, alias: alias) }
+            return ObsidianNote.link(String(path.dropFirst(root.count + 1)), alias: alias)
+        }
+        let indexName = "Merkzettel-Index"
+        let indexFile = folder.appending(path: indexName + ".md")
+        var index: [ObsidianNote.IndexItem] = []
+
+        // Text typed a moment ago is in memory only until this save.
+        try? context.save()
+        /// Writes a note when its content changed. A renamed project takes its note along.
+        func put(_ text: String, at file: URL, was old: String) throws {
+            if !old.isEmpty, old != file.path, manager.fileExists(atPath: old), !manager.fileExists(atPath: file.path) {
+                try? manager.moveItem(atPath: old, toPath: file.path)
+            }
+            if (try? String(contentsOf: file, encoding: .utf8)) != text {
+                try text.write(to: file, atomically: true, encoding: .utf8)
+            }
+        }
         let day = Date.ISO8601FormatStyle(timeZone: .current).year().month().day()
         var used: Set<String> = []
-        var taken: Set<String> = []
+        // No project note may take the index's name.
+        var taken: Set<String> = ["merkzettel-index"]
 
         func note(_ entry: Entry) -> ObsidianNote.Note {
             var file: String?
@@ -270,27 +329,38 @@ final class AppModel {
                 }
                 taken.insert(name.lowercased())
                 let file = folder.appending(path: name + ".md")
+                let archiveName = name + " Archiv"
+                let archiveFile = archiveFolder.appending(path: archiveName + ".md")
                 let archive = project.archive
+                // The archive note exists once something was archived, and stays from then on.
+                let hasArchiveNote = includeArchive && (!archive.isEmpty || !project.obsidianArchive.isEmpty)
                 let text = ObsidianNote.markdown(
                     project: project.name, folder: project.hasFolder ? project.folderPath : nil,
                     open: project.entries(.todo).map { task($0, archived: false) },
                     loose: project.looseNotes.map(note),
-                    archived: includeArchive ? archive.filter { $0.kind == .todo }.map { task($0, archived: true) } : [],
-                    finished: includeArchive ? archive.filter { $0.kind == .note }.map {
-                        ObsidianNote.FinishedNote(note: note($0), taskTitle: $0.parent?.text, done: ($0.archivedAt ?? .now).formatted(day))
-                    } : [],
-                    includeArchive: includeArchive
+                    archiveNote: hasArchiveNote ? link(archiveFile, alias: archiveName) : nil,
+                    indexNote: link(indexFile, alias: indexName)
                 )
-                // A renamed project takes its note along.
-                if !project.obsidianNote.isEmpty, project.obsidianNote != file.path,
-                   manager.fileExists(atPath: project.obsidianNote), !manager.fileExists(atPath: file.path) {
-                    try? manager.moveItem(atPath: project.obsidianNote, toPath: file.path)
-                }
-                if (try? String(contentsOf: file, encoding: .utf8)) != text {
-                    try text.write(to: file, atomically: true, encoding: .utf8)
-                }
+                index.append(ObsidianNote.IndexItem(link: link(file, alias: name), openTasks: project.entries(.todo).count))
+                try put(text, at: file, was: project.obsidianNote)
                 if project.obsidianNote != file.path { project.obsidianNote = file.path }
+                if hasArchiveNote {
+                    try manager.createDirectory(at: archiveFolder, withIntermediateDirectories: true)
+                    let archiveText = ObsidianNote.archiveMarkdown(
+                        project: project.name, projectNote: link(file, alias: name),
+                        archived: archive.filter { $0.kind == .todo }.map { task($0, archived: true) },
+                        finished: archive.filter { $0.kind == .note }.map {
+                            ObsidianNote.FinishedNote(note: note($0), taskTitle: $0.parent?.text, done: ($0.archivedAt ?? .now).formatted(day))
+                        }
+                    )
+                    try put(archiveText, at: archiveFile, was: project.obsidianArchive)
+                    if project.obsidianArchive != archiveFile.path { project.obsidianArchive = archiveFile.path }
+                }
             }
+            let parent = URL(fileURLWithPath: obsidianParent)
+            let parentLink = !obsidianParent.isEmpty && manager.fileExists(atPath: parent.path)
+                ? link(parent, alias: parent.deletingPathExtension().lastPathComponent) : nil
+            try put(ObsidianNote.indexMarkdown(parentLink: parentLink, projects: index), at: indexFile, was: "")
             try? context.save()
             // Pictures no note shows any more go away. Only the app's own files are touched.
             for name in (try? manager.contentsOfDirectory(atPath: pictures.path)) ?? []

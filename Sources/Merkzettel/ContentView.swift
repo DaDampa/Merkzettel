@@ -583,6 +583,7 @@ struct NoteEditor: View {
                 }
             }
         }
+        .onChange(of: note.text) { model.textChanged() }
         .onDisappear { model.finishEditing(note) }
     }
 }
@@ -620,6 +621,7 @@ struct EntryField: View {
             .focused($focused)
             .onSubmit { focused = false }
             .onChange(of: focused) { if !focused { model.finishEditing(entry) } }
+            .onChange(of: entry.text) { model.textChanged() }
     }
 }
 

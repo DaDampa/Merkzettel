@@ -13,7 +13,7 @@ Kompakte macOS-App für Projektmanager: Projekte links, Aufgaben als Überschrif
 - **Termine:** Datumsfeld rechts neben der Aufgabe. Der Punkt „Termine" in der Seitenleiste zeigt alle datierten Aufgaben aller Projekte, gruppiert nach Überfällig, Heute, Nächste 7 Tage, Später. Ein Klick springt zur Aufgabe.
 - **Archiv:** der Kreis vor der Aufgabe fragt nach und schiebt sie mit ihren Notizen ins Archiv. Einzelne Notizen lassen sich ebenfalls abschließen. Aus dem Archiv lässt sich alles zurückholen.
 - **Archiv-Datei:** hat ein Projekt einen Ordner, schreibt die App das Archiv dort als `Merkzettel-Archiv.md`, Bilder daneben in `Merkzettel-Bilder`.
-- **Obsidian:** In den Einstellungen lässt sich ein Obsidian-Vault verknüpfen. Jedes Projekt wird dort eine Markdown-Notiz mit offenen Aufgaben als Kästchen (Termin im Format des Tasks-Plugins), Notizen, Bildern und Archiv. Die Richtung ist Merkzettel nach Obsidian.
+- **Obsidian:** In den Einstellungen lässt sich ein Obsidian-Vault verknüpfen. Jedes Projekt wird dort eine Markdown-Notiz mit offenen Aufgaben als Kästchen (Termin im Format des Tasks-Plugins), Notizen und Bildern. Erledigtes steht getrennt in einer Archiv-Notiz je Projekt; die Ordner für Projekte und Archiv sind frei wählbar. Änderungen gehen kurz nach dem Tippen automatisch nach Obsidian. Eine Notiz „Merkzettel-Index" verlinkt alle Projekte und hängt unter einer wählbaren übergeordneten Notiz, damit die Projekte in der Graph-Ansicht zusammenhängen. Die Richtung ist Merkzettel nach Obsidian.
 - **Immer im Vordergrund:** Stecknadel in der Symbolleiste (Umschalt-Command-T), optional auf allen Schreibtischen.
 - **Listen einfügen:** Umschalt-Command-V macht aus jeder Zeile der Zwischenablage eine Aufgabe.
 
@@ -113,14 +113,32 @@ Projektordner und Archiv-Datei
 Obsidian
 - Eigener Einstellungs-Reiter „Obsidian": Schalter „Projekte in Obsidian ablegen", Auswahl
   des Vaults (bekannte Vaults aus ~/Library/Application Support/obsidian/obsidian.json,
-  sonst Ordner wählen), Ordner im Vault (Standard „Merkzettel"), Schalter „Archiv mit
-  aufnehmen", Anzeige des letzten Schreibzeitpunkts oder Fehlers, Knopf „Jetzt schreiben".
-- Je Projekt eine Markdown-Notiz im Vault: Frontmatter mit Tag „merkzettel", Hinweis, dass
-  die Notiz überschrieben wird, offene Aufgaben als „- [ ]" in Prioritätsreihenfolge mit
-  Termin als „📅 JJJJ-MM-TT", Notizen eingerückt darunter, Bilder als ![[Datei]] aus dem
-  Unterordner „Anhänge", danach das Archiv mit „- [x] … ✅ JJJJ-MM-TT".
+  sonst Ordner wählen), „Projektordner" (Standard „Merkzettel"), Schalter „Archiv in
+  Obsidian ablegen", „Archivordner" (Standard „Merkzettel/Archiv"); beide Ordner
+  als Textfeld plus Ordnerauswahl innerhalb des Vaults. Anzeige des letzten
+  Schreibzeitpunkts oder Fehlers, Knopf „Jetzt schreiben".
+- Je Projekt eine Projektnotiz: Frontmatter mit den Tags „merkzettel" und dem Projektnamen
+  als Tag (nur Buchstaben, Ziffern, _ und -, also „Kunde Nord" wird „Kunde-Nord"; die
+  Archiv-Notiz trägt „merkzettel-archiv" und denselben Projekt-Tag), Hinweis, dass die Notiz
+  überschrieben wird, Link auf die Archiv-Notiz, offene Aufgaben als „- [ ]" in
+  Prioritätsreihenfolge mit Termin als „📅 JJJJ-MM-TT", Notizen eingerückt darunter, Bilder
+  als ![[Datei]] aus dem Unterordner „Anhänge".
+- Erledigtes steht nicht in der Projektnotiz, sondern in einer eigenen Notiz
+  „<Projekt> Archiv" im Archiv-Ordner: „- [x] … ✅ JJJJ-MM-TT" mit Notizen, dazu einzeln
+  abgeschlossene Notizen, mit Link zurück zum Projekt.
+- #Tags, die in Aufgaben oder Notizen getippt werden (z. B. „#TEST"), bleiben im Text
+  stehen und kommen zusätzlich in die Tags der jeweiligen Projekt- oder Archiv-Notiz,
+  jeder einmal, ohne reine Zahlen wie „#12".
+- Zusätzlich eine Notiz „Merkzettel-Index" im Projektordner: ein Link je Projekt mit der
+  Zahl offener Aufgaben, darüber „Übergeordnet: [[…]]" auf eine Notiz, die in den
+  Einstellungen gewählt wird („Übergeordnete Notiz", beliebige Notiz des Vaults). Jede
+  Projektnotiz verlinkt den Index, jede Archiv-Notiz ihr Projekt.
+- Alle Links als Wikilink mit vollem Pfad ab dem Vault-Stamm und Kurzname ([[Pfad|Name]]),
+  damit sie auch bei gleichnamigen Notizen eindeutig sind. Der Vault-Stamm ist der nächste
+  Ordner ab dem gewählten aufwärts, der „.obsidian" enthält.
 - Nur Richtung Merkzettel nach Obsidian. Etwa eine Sekunde nach jeder Änderung schreiben,
-  Dateien nur bei geändertem Inhalt anfassen. Umbenannte Projekte nehmen ihre Notiz mit.
+  auch nach jedem Tippen in Aufgaben und Notizen, und einmal beim Start. Dateien nur bei
+  geändertem Inhalt anfassen. Umbenannte Projekte nehmen beide Notizen mit.
 - „In Obsidian öffnen" im Rechtsklick-Menü des Projekts und als Menübefehl
   (obsidian://open?path=…).
 - Ein Zahnrad unten in der Seitenleiste öffnet die Einstellungen.
