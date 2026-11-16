@@ -72,6 +72,9 @@ struct ContentView: View {
                     model.add("Notiz Nummer \(number), später dazugekommen", kind: .note, to: project, under: task)
                 }
             }
+            if Store.isOverridden, ProcessInfo.processInfo.environment["APP_KEYTEST"] == "1" {
+                await KeyTest.run(model: model)
+            }
             // Opens the "done?" alert, or jumps from Termine to the last dated task, to look at both.
             if Store.isOverridden, ProcessInfo.processInfo.environment["APP_ASK_DONE"] == "1" {
                 model.taskToComplete = model.project?.entries(.todo).first
@@ -164,23 +167,44 @@ struct AgendaSidebarRow: View {
 struct AgendaPage: View {
     @Environment(AppModel.self) private var model
     @Query(filter: Entry.openDatedTasks) private var unsorted: [Entry]
+    /// A day picked in the two-week overview: the list shows only what is due then.
+    @State private var day: Date?
 
     var body: some View {
         @Bindable var model = model
+        let calendar = Agenda.weekCalendar
         let dated = unsorted.sorted { ($0.dueDate ?? .distantFuture, $0.sortIndex) < ($1.dueDate ?? .distantFuture, $1.sortIndex) }
-        List {
-            ForEach(Agenda.Bucket.allCases) { bucket in
-                let tasks = dated.filter { Agenda.bucket(for: $0.dueDate ?? .distantFuture) == bucket }
-                if !tasks.isEmpty {
-                    Section(bucket.title) {
-                        ForEach(tasks) { task in
-                            AgendaRow(task: task, overdue: bucket == .overdue)
+        let shown = dated.filter { task in day.map { calendar.isDate(task.dueDate ?? .distantFuture, inSameDayAs: $0) } ?? true }
+        VStack(spacing: 0) {
+            WeekStrip(counts: Agenda.counts(of: dated.compactMap(\.dueDate)), day: $day)
+            Divider()
+            List {
+                if let day {
+                    HStack {
+                        Text(day, format: .dateTime.weekday(.wide).day().month(.wide))
+                            .font(.headline)
+                        Spacer()
+                        Button("Alle Termine zeigen") { self.day = nil }
+                            .buttonStyle(.link)
+                    }
+                    if shown.isEmpty {
+                        Text("An diesem Tag ist nichts fällig.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                ForEach(Agenda.Bucket.allCases) { bucket in
+                    let tasks = shown.filter { Agenda.bucket(for: $0.dueDate ?? .distantFuture) == bucket }
+                    if !tasks.isEmpty {
+                        Section(bucket.title) {
+                            ForEach(tasks) { task in
+                                AgendaRow(task: task, overdue: bucket == .overdue)
+                            }
                         }
                     }
                 }
             }
+            .listStyle(.inset)
         }
-        .listStyle(.inset)
         .overlay {
             if dated.isEmpty {
                 ContentUnavailableView(
@@ -200,6 +224,73 @@ struct AgendaPage: View {
                 .help("Fenster immer im Vordergrund halten (Umschalt-Command-T)")
             }
         }
+    }
+}
+
+/// This week and the next, Monday to Sunday. A day with due tasks shows how
+/// many; a click on a day shows only that day's tasks.
+struct WeekStrip: View {
+    let counts: [Date: Int]
+    @Binding var day: Date?
+
+    var body: some View {
+        let calendar = Agenda.weekCalendar
+        let days = Agenda.twoWeeks()
+        let today = calendar.startOfDay(for: .now)
+        Grid(horizontalSpacing: Space.xs, verticalSpacing: Space.xs) {
+            GridRow {
+                Text("KW")
+                ForEach(days.prefix(7), id: \.self) { date in
+                    Text(date, format: .dateTime.weekday(.abbreviated))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            ForEach([0, 7], id: \.self) { start in
+                GridRow {
+                    Text("\(calendar.component(.weekOfYear, from: days[start]))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                    ForEach(days[start..<(start + 7)], id: \.self) { date in
+                        cell(date, count: counts[date] ?? 0, today: today, calendar: calendar)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, Space.margin)
+        .padding(.vertical, Space.sm)
+    }
+
+    private func cell(_ date: Date, count: Int, today: Date, calendar: Calendar) -> some View {
+        let isToday = date == today
+        let isPicked = day.map { calendar.isDate($0, inSameDayAs: date) } ?? false
+        let late = date < today && count > 0
+        return Button {
+            day = isPicked ? nil : date
+        } label: {
+            HStack(spacing: Space.xs) {
+                Text("\(calendar.component(.day, from: date))")
+                    .fontWeight(isToday ? .bold : .regular)
+                    .foregroundStyle(isToday ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    .monospacedDigit()
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .padding(.horizontal, Space.xs)
+                        .foregroundStyle(.white)
+                        .background(late ? AnyShapeStyle(.red) : AnyShapeStyle(.tint), in: .capsule)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: Space.xxl)
+            .background(isPicked ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.quaternary.opacity(0.5)), in: .rect(cornerRadius: Space.xs))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(count == 0 ? "Nichts fällig" : (count == 1 ? "1 Termin fällig" : "\(count) Termine fällig"))
+        .accessibilityLabel("\(date.formatted(.dateTime.weekday(.wide).day().month(.wide))), \(count) Termine")
     }
 }
 
@@ -534,32 +625,90 @@ struct NoteRow: View {
 /// One note in a window of its own, with room for long text.
 struct NoteWindow: View {
     @Environment(AppModel.self) private var model
-    @Query private var notes: [Entry]
+    /// Which note the window shows. The arrows in the window change it.
+    @Binding var uuid: UUID?
     @AppStorage("allSpaces") private var allSpaces = false
-
-    init(uuid: UUID) {
-        _notes = Query(filter: #Predicate<Entry> { $0.uuid == uuid })
-    }
+    /// Tells this window apart from other note windows.
+    @State private var token = UUID()
 
     var body: some View {
         Group {
-            if let note = notes.first {
-                NoteEditor(note: note)
+            if let uuid {
+                NoteLoader(uuid: uuid, current: $uuid)
+                    .id(uuid)
             } else {
-                ContentUnavailableView("Notiz nicht mehr vorhanden", systemImage: "note.text",
-                                       description: Text("Sie wurde gelöscht."))
+                NoteGone()
             }
         }
         .background(WindowLevel(floating: model.alwaysOnTop, allSpaces: allSpaces))
+        .background(KeyWindowReporter { isKey in if isKey { model.noteFollower = token } })
+        .onAppear { model.noteFollower = token }
+        .onDisappear { if model.noteFollower == token { model.noteFollower = nil } }
+        // The window shows the note the cursor is in: walking through the list
+        // with the arrow keys turns its pages. Of several note windows only the
+        // one used last follows.
+        .onChange(of: model.activeNote) {
+            if let active = model.activeNote, active != uuid, model.noteFollower == token { uuid = active }
+        }
+    }
+}
+
+private struct NoteGone: View {
+    var body: some View {
+        ContentUnavailableView("Notiz nicht mehr vorhanden", systemImage: "note.text",
+                               description: Text("Sie wurde gelöscht."))
+    }
+}
+
+/// Finds the note by its id.
+struct NoteLoader: View {
+    @Query private var notes: [Entry]
+    @Binding var current: UUID?
+
+    init(uuid: UUID, current: Binding<UUID?>) {
+        _notes = Query(filter: #Predicate<Entry> { $0.uuid == uuid })
+        _current = current
+    }
+
+    var body: some View {
+        if let note = notes.first {
+            NoteEditor(note: note, current: $current)
+        } else {
+            NoteGone()
+        }
     }
 }
 
 struct NoteEditor: View {
     @Environment(AppModel.self) private var model
     @Bindable var note: Entry
+    @Binding var current: UUID?
 
     var body: some View {
+        let sequence = model.noteSequence(for: note)
+        let index = sequence.firstIndex { $0.id == note.id }
         VStack(alignment: .leading, spacing: 0) {
+            // Small on purpose: the note is what the window is for.
+            HStack(spacing: Space.xs) {
+                Button("Vorige Notiz", systemImage: "chevron.left") { step(-1, in: sequence, from: index) }
+                    .disabled(index == nil || index == 0)
+                    .help("Vorige Notiz (Wahl-Command-Pfeil links)")
+                Button("Nächste Notiz", systemImage: "chevron.right") { step(1, in: sequence, from: index) }
+                    .disabled(index == nil || index == sequence.count - 1)
+                    .help("Nächste Notiz (Wahl-Command-Pfeil rechts)")
+                if let index {
+                    Text("\(index + 1) von \(sequence.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Spacer()
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .controlSize(.mini)
+            .padding(.horizontal, Space.md)
+            .padding(.top, Space.sm)
             if note.hasImage, let data = note.imageData ?? note.thumbnail, let image = NSImage(data: data) {
                 ScrollView([.horizontal, .vertical]) {
                     Image(nsImage: image)
@@ -583,8 +732,59 @@ struct NoteEditor: View {
                 }
             }
         }
+        .background(KeyWindowReporter { isKey in
+            if isKey { model.frontNote = note.uuid } else if model.frontNote == note.uuid { model.frontNote = nil }
+        })
+        .onAppear { model.activeNote = note.uuid }
         .onChange(of: note.text) { model.textChanged() }
+        // The arrow keys arrive through the model: only the window in front reacts.
+        .onChange(of: model.noteStepTick) {
+            if model.frontNote == note.uuid { step(model.noteStepOffset, in: sequence, from: index) }
+        }
         .onDisappear { model.finishEditing(note) }
+    }
+
+    /// Shows the note before or after this one in the same window.
+    private func step(_ offset: Int, in sequence: [Entry], from index: Int?) {
+        guard let index, sequence.indices.contains(index + offset) else { return }
+        let next = sequence[index + offset].uuid
+        if model.frontNote == note.uuid { model.frontNote = next }
+        current = next
+    }
+}
+
+/// Tells when its window takes or loses the keyboard.
+struct KeyWindowReporter: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    final class Coordinator {
+        var tokens: [NSObjectProtocol] = []
+        var onChange: (Bool) -> Void = { _ in }
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.tokens.forEach(NotificationCenter.default.removeObserver)
+        coordinator.tokens = []
+        coordinator.onChange(false)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.onChange = onChange
+        // The view joins its window after this call.
+        Task { @MainActor in
+            guard coordinator.tokens.isEmpty, let window = view.window else { return }
+            for (name, isKey) in [(NSWindow.didBecomeKeyNotification, true), (NSWindow.didResignKeyNotification, false)] {
+                coordinator.tokens.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { _ in
+                    MainActor.assumeIsolated { coordinator.onChange(isKey) }
+                })
+            }
+            if window.isKeyWindow { coordinator.onChange(true) }
+        }
     }
 }
 
@@ -620,8 +820,25 @@ struct EntryField: View {
             .textFieldStyle(.plain)
             .focused($focused)
             .onSubmit { focused = false }
-            .onChange(of: focused) { if !focused { model.finishEditing(entry) } }
+            .onChange(of: focused) {
+                model.fieldFocus(entry.uuid.uuidString, focused)
+                if focused, entry.kind == .note { model.activeNote = entry.uuid }
+                if !focused { model.finishEditing(entry) }
+            }
             .onChange(of: entry.text) { model.textChanged() }
+            .onChange(of: model.focusRequest) {
+                if model.focusRequest == entry.uuid.uuidString {
+                    focused = true
+                    model.focusRequest = nil
+                }
+            }
+            // Shift-Return: on to a new note line of this task (or of the note's task).
+            .onChange(of: model.shiftReturn) {
+                guard focused else { return }
+                let task = entry.kind == .todo ? entry.uuid : entry.parent?.uuid
+                focused = false
+                model.focusNoteFor = task
+            }
     }
 }
 
@@ -632,6 +849,19 @@ struct AddField: View {
     let task: Entry?
     @State private var draft = ""
     @FocusState private var focused: Bool
+
+    private var fieldID: String { task.map { "add-\($0.uuid.uuidString)" } ?? "new-task" }
+
+    /// Takes the cursor when this is the note line the model asks for. A block
+    /// that was just added needs a moment before it can.
+    private func claimFocus() {
+        guard let task, model.focusNoteFor == task.uuid else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(80))
+            focused = true
+            if model.focusNoteFor == task.uuid { model.focusNoteFor = nil }
+        }
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
@@ -648,6 +878,28 @@ struct AddField: View {
                 }
         }
         .font(task == nil ? .body : .callout)
+        .onChange(of: focused) { model.fieldFocus(fieldID, focused) }
+        // Shift-Return: a new task is added and the cursor goes to its first
+        // note line. In a note line it adds the note, like Return.
+        .onChange(of: model.shiftReturn) {
+            guard focused else { return }
+            if let task {
+                model.add(draft, kind: .note, to: project, under: task)
+                draft = ""
+            } else if model.add(draft, kind: .todo, to: project) > 0 {
+                draft = ""
+                focused = false
+                model.focusNoteFor = project.entries(.todo).last?.uuid
+            }
+        }
+        .onChange(of: model.focusNoteFor) { claimFocus() }
+        .onChange(of: model.focusRequest) {
+            if model.focusRequest == fieldID {
+                focused = true
+                model.focusRequest = nil
+            }
+        }
+        .onAppear { claimFocus() }
         .onChange(of: model.focusNewTask) {
             if model.focusNewTask, task == nil {
                 focused = true

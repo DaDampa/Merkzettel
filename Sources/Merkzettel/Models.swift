@@ -138,6 +138,25 @@ final class AppModel {
     var renamingID: PersistentIdentifier?
     /// Set by the menu to move the cursor into the "Neue Aufgabe" field.
     var focusNewTask = false
+    /// Counts Shift-Return presses. The text field that has the cursor reacts to a change.
+    var shiftReturn = 0
+    /// The task whose "Notiz hinzufügen" field should take the cursor.
+    var focusNoteFor: UUID?
+    /// The text field that has the cursor, by its id. Shift-Return only counts while one has it.
+    @ObservationIgnored var focusedField: String?
+    /// The note that had the cursor last: what Command-Return opens large,
+    /// and what the large note window follows.
+    var activeNote: UUID?
+    /// The text field that should take the cursor, by its id. Set by the arrow keys.
+    var focusRequest: String?
+    /// The large note window that follows the cursor: the one opened or used last.
+    @ObservationIgnored var noteFollower: UUID?
+    @ObservationIgnored private var keyMonitor: Any?
+    /// The note whose large window has the keyboard. Nil while no note window is in front.
+    @ObservationIgnored var frontNote: UUID?
+    /// Option-Command-Arrow in a note window: which way to step, and a counter the window reacts to.
+    @ObservationIgnored var noteStepOffset = 0
+    var noteStepTick = 0
     var projectToDelete: Project?
     /// The task whose circle was clicked. An alert asks before it goes to the archive.
     var taskToComplete: Entry?
@@ -169,6 +188,7 @@ final class AppModel {
         self.container = container
         let saved = Store.isOverridden ? "" : UserDefaults.standard.string(forKey: "project.selected") ?? ""
         projectID = (projects.first { $0.uuid.uuidString == saved } ?? projects.first)?.id
+        installKeyMonitor()
         // Brings the vault up to date with what changed while the link was off or the app was closed.
         scheduleObsidian()
     }
@@ -533,6 +553,71 @@ final class AppModel {
         if wasSelected { projectID = projects.first?.id }
     }
 
+    // MARK: Keyboard
+
+    /// Text fields report when they take or lose the cursor.
+    func fieldFocus(_ id: String, _ focused: Bool) {
+        if focused { focusedField = id } else if focusedField == id { focusedField = nil }
+    }
+
+    /// Shift-Return in a task or note field means "on to a note line". A text
+    /// field would treat it as a plain Return, so the key is caught before it gets there.
+    private func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+            guard let self else { return event }
+            // Option-Command-Left and -Right step through the notes in a large note window.
+            if event.keyCode == 123 || event.keyCode == 124, modifiers == [.command, .option], self.frontNote != nil {
+                self.noteStepOffset = event.keyCode == 123 ? -1 : 1
+                self.noteStepTick += 1
+                return nil
+            }
+            // Up and Down walk through the tasks, notes, and add lines of the list.
+            // Inside a text of several lines they first move within the text.
+            if event.keyCode == 125 || event.keyCode == 126, modifiers.isEmpty, self.focusedField != nil,
+               let editor = event.window?.firstResponder as? NSTextView, !editor.hasMarkedText() {
+                let text = editor.string as NSString
+                let selection = editor.selectedRange()
+                let down = event.keyCode == 125
+                let rest = down ? text.substring(from: min(NSMaxRange(selection), text.length)) : text.substring(to: min(selection.location, text.length))
+                if !rest.contains("\n"), self.moveFocus(by: down ? 1 : -1) { return nil }
+                return event
+            }
+            let isReturn = event.keyCode == 36 || event.keyCode == 76
+            guard isReturn, modifiers == .shift, self.focusedField != nil else { return event }
+            self.shiftReturn += 1
+            return nil
+        }
+    }
+
+    /// The ids of the text fields of the open list from top to bottom: per task
+    /// its title, its notes, its "Notiz hinzufügen" line; then "Neue Aufgabe"; then loose notes.
+    func fieldOrder(of project: Project) -> [String] {
+        project.entries(.todo).flatMap { task in
+            [task.uuid.uuidString] + task.openNotes.map(\.uuid.uuidString) + ["add-\(task.uuid.uuidString)"]
+        } + ["new-task"] + project.looseNotes.map(\.uuid.uuidString)
+    }
+
+    /// Moves the cursor to the field above or below the one that has it. False at the ends.
+    @discardableResult
+    func moveFocus(by offset: Int) -> Bool {
+        // A move that is still under way counts from where it is going, so
+        // fast presses and a held key do not get lost.
+        guard !showsAgenda, page == .open, let project, let current = focusRequest ?? focusedField else { return false }
+        let order = fieldOrder(of: project)
+        guard let index = order.firstIndex(of: current), order.indices.contains(index + offset) else { return false }
+        focusRequest = order[index + offset]
+        return true
+    }
+
+    /// The open notes of the note's project in reading order: task by task in
+    /// priority order, then the notes without a task. The large note window steps through them.
+    func noteSequence(for note: Entry) -> [Entry] {
+        guard let project = note.project else { return [note] }
+        return project.entries(.todo).flatMap(\.openNotes) + project.looseNotes
+    }
+
     // MARK: Entries
 
     /// Adds entries to the project. Several lines become several tasks; a note
@@ -672,6 +757,7 @@ final class AppModel {
     func delete(_ entry: Entry) {
         let project = entry.project
         let wasInArchive = entry.isArchived || entry.parent?.isArchived == true
+        if activeNote == entry.uuid { activeNote = nil }
         context.delete(entry)
         save()
         if wasInArchive { writeArchiveFile(for: project) }

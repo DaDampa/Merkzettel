@@ -88,6 +88,23 @@ enum SelfTest {
             model.delete(project)
             check("deleting a project deletes its entries", stored(Entry.self) == entriesBefore - 2 && model.projectID != nil)
 
+            let reading = model.addProject(name: "Reihenfolge")
+            model.add("A\nB", kind: .todo, to: reading)
+            let pair = reading.entries(.todo)
+            if pair.count == 2 {
+                model.add("b1", kind: .note, to: reading, under: pair[1])
+                model.add("a1", kind: .note, to: reading, under: pair[0])
+                model.add("a2", kind: .note, to: reading, under: pair[0])
+                check("the arrow keys walk task, notes, note line, next task, new task",
+                      model.fieldOrder(of: reading) == [pair[0].uuid.uuidString] + pair[0].openNotes.map(\.uuid.uuidString) + ["add-\(pair[0].uuid.uuidString)",
+                                                        pair[1].uuid.uuidString] + pair[1].openNotes.map(\.uuid.uuidString) + ["add-\(pair[1].uuid.uuidString)", "new-task"])
+                if let start = pair[0].openNotes.first {
+                    check("the large note window steps through notes task by task",
+                          model.noteSequence(for: start).map(\.text) == ["a1", "a2", "b1"])
+                }
+            }
+            model.delete(reading)
+
             let dated = model.addProject(name: "Termine A")
             let other = model.addProject(name: "Termine B")
             model.add("Später\nOhne Datum", kind: .todo, to: dated)

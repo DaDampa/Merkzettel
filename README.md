@@ -11,6 +11,8 @@ Kompakte macOS-App für Projektmanager: Projekte links, Aufgaben als Überschrif
 - **Notizen:** hängen unter ihrer Aufgabe, in der Liste höchstens drei Zeilen, per Symbol in einem eigenen großen Fenster zu öffnen.
 - **Bilder:** als Notiz einfügen, aus der Zwischenablage, als Datei oder per Ziehen auf die Aufgabe.
 - **Termine:** Datumsfeld rechts neben der Aufgabe. Der Punkt „Termine" in der Seitenleiste zeigt alle datierten Aufgaben aller Projekte, gruppiert nach Überfällig, Heute, Nächste 7 Tage, Später. Ein Klick springt zur Aufgabe.
+- **Wochenübersicht:** Über der Terminliste stehen die aktuelle und die nächste Woche (Montag bis Sonntag, mit Kalenderwoche). An jedem Tag zeigt eine Zahl, wie viele Aufgaben fällig sind; ein Klick auf den Tag zeigt nur diese.
+- **Tastatur:** Umschalt-Return in einer Aufgabe springt in deren Notizzeile, Return bleibt bei den Aufgaben. Pfeil auf/ab wandert durch Aufgaben, Notizen und Eingabezeilen; ein offenes großes Notizfenster zeigt dabei immer die Notiz, in der der Cursor steht. Command-Return öffnet die aktive Notiz groß; im großen Notizfenster springen Wahl-Command-Pfeil links/rechts oder zwei kleine Pfeile zur vorigen und nächsten Notiz.
 - **Archiv:** der Kreis vor der Aufgabe fragt nach und schiebt sie mit ihren Notizen ins Archiv. Einzelne Notizen lassen sich ebenfalls abschließen. Aus dem Archiv lässt sich alles zurückholen.
 - **Archiv-Datei:** hat ein Projekt einen Ordner, schreibt die App das Archiv dort als `Merkzettel-Archiv.md`, Bilder daneben in `Merkzettel-Bilder`.
 - **Obsidian:** In den Einstellungen lässt sich ein Obsidian-Vault verknüpfen. Jedes Projekt wird dort eine Markdown-Notiz mit offenen Aufgaben als Kästchen (Termin im Format des Tasks-Plugins), Notizen und Bildern. Erledigtes steht getrennt in einer Archiv-Notiz je Projekt; die Ordner für Projekte und Archiv sind frei wählbar. Änderungen gehen kurz nach dem Tippen automatisch nach Obsidian. Eine Notiz „Merkzettel-Index" verlinkt alle Projekte und hängt unter einer wählbaren übergeordneten Notiz, damit die Projekte in der Graph-Ansicht zusammenhängen. Die Richtung ist Merkzettel nach Obsidian.
@@ -102,6 +104,31 @@ Termine
 - Zeigt alle offenen Aufgaben mit Datum aus allen Projekten, gruppiert nach Überfällig,
   Heute, Nächste 7 Tage, Später, mit Projektname. Ein Klick springt zur Aufgabe im
   Projekt, scrollt hin und markiert sie kurz.
+
+Wochenübersicht in „Termine"
+- Über der Liste ein Raster mit der aktuellen und der nächsten Woche, Montag bis Sonntag,
+  links die Kalenderwoche. Heute ist hervorgehoben. Ein Tag mit fälligen Aufgaben zeigt
+  deren Anzahl als kleine Marke, bei vergangenen Tagen in Rot.
+- Klick auf einen Tag zeigt in der Liste nur dessen Aufgaben; „Alle Termine zeigen" hebt
+  das wieder auf.
+
+Tastatur
+- Im Feld „Neue Aufgabe": Return legt die Aufgabe an und bleibt im Feld. Umschalt-Return
+  legt sie an und setzt den Cursor in „Notiz hinzufügen" dieser Aufgabe. In einer
+  bestehenden Aufgabe oder Notiz springt Umschalt-Return in die Notizzeile der Aufgabe.
+  Umschalt-Return über einen lokalen Tastatur-Monitor (NSEvent) abfangen, weil ein
+  Textfeld es sonst wie Return behandelt.
+- Pfeil auf/ab bewegt den Cursor zum Feld darüber oder darunter, in der Reihenfolge:
+  Aufgabe, ihre Notizen, „Notiz hinzufügen", nächste Aufgabe, …, „Neue Aufgabe". In einem
+  mehrzeiligen Text wandert der Cursor erst durch dessen Zeilen. Ebenfalls über den
+  Tastatur-Monitor; schnelle Folgen zählen vom noch ausstehenden Ziel aus.
+- Ein offenes großes Notizfenster folgt dem Cursor: Steht er in einer anderen Notiz,
+  zeigt das Fenster diese, ohne die Tastatur zu übernehmen. Von mehreren Notizfenstern
+  folgt nur das zuletzt benutzte.
+- Command-Return (Menübefehl) öffnet die Notiz groß, in der der Cursor zuletzt stand.
+- Im großen Notizfenster ganz oben, sehr klein: zwei Pfeile „vorige" und „nächste" Notiz
+  und „2 von 5". Wahl-Command-Pfeil links/rechts tun dasselbe. Reihenfolge: Aufgabe für
+  Aufgabe in Prioritätsreihenfolge, die Notiz wechselt im selben Fenster.
 
 Projektordner und Archiv-Datei
 - Einstellung „Ordner für neue Projekte": Jedes neue Projekt bekommt dort einen

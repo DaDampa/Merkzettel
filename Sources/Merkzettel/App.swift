@@ -10,6 +10,7 @@ import SwiftUI
 //   Merkzettel --selftest           run the self-test on a /tmp store and quit with 0 or 1 (tools/selftest.sh)
 //   APP_ACCENT=<id> Merkzettel      run with another accent from Theme.all (UI/Theme.swift)
 //   APP_OPEN_NOTE=1 Merkzettel       with a /tmp store: open the first note large, to look at that window
+//   APP_KEYTEST=1 Merkzettel         with a /tmp store: types into the window, checks Shift-Return and Command-Return, quits
 //   APP_GRID=1 Merkzettel           draw the 8 pt grid and the layout probes over the window
 
 @main
@@ -47,6 +48,7 @@ struct MerkzettelApp: App {
                     .keyboardShortcut("o", modifiers: [.command, .shift])
                     .disabled(model.project == nil || model.obsidianVault.isEmpty || model.showsAgenda)
             }
+            NoteCommands(model: model)
             CommandGroup(before: .toolbar) {
                 Toggle("Immer im Vordergrund", isOn: Binding(get: { model.alwaysOnTop }, set: { model.alwaysOnTop = $0 }))
                     .keyboardShortcut("t", modifiers: [.command, .shift])
@@ -60,7 +62,7 @@ struct MerkzettelApp: App {
 
         // A note opened large, in a window of its own beside the compact list.
         WindowGroup("Notiz", id: "note", for: UUID.self) { $uuid in
-            NoteWindow(uuid: uuid ?? UUID())
+            NoteWindow(uuid: $uuid)
                 .environment(model)
                 .themed()
                 .frame(minWidth: 380, minHeight: 260)
@@ -75,6 +77,23 @@ struct MerkzettelApp: App {
                 .themed()
         }
         .windowResizability(.contentSize)
+    }
+}
+
+/// Menu commands that open windows.
+struct NoteCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+    let model: AppModel
+
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Aktive Notiz groß öffnen") {
+                if let note = model.activeNote { openWindow(id: "note", value: note) }
+            }
+            .keyboardShortcut(.return, modifiers: .command)
+            // Not disabled while no note is active: a menu built from a
+            // Commands type does not follow the model, and would stay off.
+        }
     }
 }
 
