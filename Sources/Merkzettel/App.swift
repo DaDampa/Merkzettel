@@ -43,6 +43,9 @@ struct MerkzettelApp: App {
                     .keyboardShortcut("n", modifiers: [.command, .option])
                 Button("Ordner als Projekt hinzufügen …") { model.chooseFolders() }
                     .keyboardShortcut("o")
+                Button("Projekt in Obsidian öffnen") { if let project = model.project { model.openInObsidian(project) } }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .disabled(model.project == nil || model.obsidianVault.isEmpty || model.showsAgenda)
             }
             CommandGroup(before: .toolbar) {
                 Toggle("Immer im Vordergrund", isOn: Binding(get: { model.alwaysOnTop }, set: { model.alwaysOnTop = $0 }))

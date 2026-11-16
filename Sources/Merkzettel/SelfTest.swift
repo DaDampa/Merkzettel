@@ -138,6 +138,40 @@ enum SelfTest {
             model.rootOverride = nil
             try? FileManager.default.removeItem(at: root)
 
+            let vault = URL.temporaryDirectory.appending(path: "Merkzettel-selftest-vault", directoryHint: .isDirectory)
+            try? FileManager.default.removeItem(at: vault)
+            try? FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+            let linked = model.addProject(name: "Obsidian: Test")
+            model.add("Erste Aufgabe\nZweite Aufgabe", kind: .todo, to: linked)
+            if let task = linked.entries(.todo).first {
+                model.setDue(task, Date(timeIntervalSince1970: 1_795_000_000))
+                model.add("Eine Notiz", kind: .note, to: linked, under: task)
+                model.addImage(ImageTools.sample(width: 160, height: 96), to: linked, under: task)
+            }
+            model.obsidianOverride = vault.path
+            check("no Obsidian link without a vault in Settings", model.obsidianVault == vault.path)
+            model.writeObsidian()
+            let noteFile = vault.appending(path: "Merkzettel/Obsidian- Test.md")
+            let noteText = (try? String(contentsOf: noteFile, encoding: .utf8)) ?? ""
+            let attached = (try? FileManager.default.contentsOfDirectory(atPath: vault.appending(path: "Merkzettel/Anhänge").path)) ?? []
+            check("a project becomes a note in the vault with tasks, due date, notes, and pictures",
+                  noteText.contains("- [ ] Erste Aufgabe 📅 ") && noteText.contains("\t- Eine Notiz") && noteText.contains("![[Merkzettel-")
+                    && noteText.contains("- [ ] Zweite Aufgabe") && attached.count == 1, noteText)
+            if let task = linked.entries(.todo).first {
+                model.archive(task)
+                model.writeObsidian()
+                let after = (try? String(contentsOf: noteFile, encoding: .utf8)) ?? ""
+                check("a done task moves to the archive part of the note", after.contains("## Archiv") && after.contains("- [x] Erste Aufgabe"), after)
+            }
+            linked.name = "Umbenannt"
+            model.writeObsidian()
+            check("a renamed project takes its note along",
+                  !FileManager.default.fileExists(atPath: noteFile.path)
+                    && FileManager.default.fileExists(atPath: vault.appending(path: "Merkzettel/Umbenannt.md").path))
+            model.obsidianOverride = nil
+            model.delete(linked)
+            try? FileManager.default.removeItem(at: vault)
+
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
         }

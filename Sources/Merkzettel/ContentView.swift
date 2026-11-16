@@ -97,6 +97,7 @@ enum SidebarSelection: Hashable {
 
 struct ProjectSidebar: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openSettings) private var openSettings
     let projects: [Project]
 
     private var selection: Binding<SidebarSelection?> {
@@ -126,16 +127,23 @@ struct ProjectSidebar: View {
             }
         }
         .safeAreaInset(edge: .bottom, alignment: .leading) {
-            Menu {
-                Button("Neues Projekt", systemImage: "plus") { model.addProject() }
-                Button("Bestehenden Ordner wählen …", systemImage: "folder") { model.chooseFolders() }
-            } label: {
-                Label("Projekt", systemImage: "plus")
+            HStack(spacing: Space.sm) {
+                Menu {
+                    Button("Neues Projekt", systemImage: "plus") { model.addProject() }
+                    Button("Bestehenden Ordner wählen …", systemImage: "folder") { model.chooseFolders() }
+                } label: {
+                    Label("Projekt", systemImage: "plus")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Projekt anlegen oder Ordner wählen")
+                Spacer()
+                Button("Einstellungen", systemImage: "gearshape") { openSettings() }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Einstellungen öffnen: Projektordner, Obsidian, Darstellung (Command-Komma)")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
             .padding(Space.md)
-            .help("Projekt anlegen oder Ordner wählen")
         }
     }
 }
@@ -259,6 +267,9 @@ struct ProjectRow: View {
                 Button("Im Finder zeigen", systemImage: "folder") { model.showInFinder(project) }
             } else if !model.rootPath.isEmpty {
                 Button("Projektordner anlegen", systemImage: "folder.badge.plus") { model.ensureFolder(for: project) }
+            }
+            if !model.obsidianVault.isEmpty {
+                Button("In Obsidian öffnen", systemImage: "arrow.up.forward.app") { model.openInObsidian(project) }
             }
             Divider()
             Button("Projekt löschen …", systemImage: "trash", role: .destructive) { model.projectToDelete = project }

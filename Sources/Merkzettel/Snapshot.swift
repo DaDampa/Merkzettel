@@ -48,6 +48,10 @@ enum Snapshot {
                 let main = NSApp.windows.first { $0.canBecomeMain && !$0.isSheet }
                 openSettings()
                 try? await Task.sleep(for: .seconds(1))
+                // With Stage Manager on, Settings sits in the side strip as a small
+                // tilted thumbnail while the main window holds the stage.
+                main?.orderOut(nil)
+                try? await Task.sleep(for: .seconds(1.5))
                 for mode in ["light", "dark"] {
                     NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
                     for tab in SettingsTab.allCases {
@@ -85,7 +89,10 @@ enum Snapshot {
         GridProbes.shared.write(to: path.replacingOccurrences(of: ".png", with: "-layout.json"), window: size)
         try? FileManager.default.removeItem(atPath: path)
         // The first capture of a run sometimes misses the window. Try three times.
-        for _ in 1...3 {
+        // APP_SNAPSHOT_DRAW=1 skips the screen capture and draws the views instead:
+        // for when Stage Manager shows the window only as a thumbnail.
+        let draws = ProcessInfo.processInfo.environment["APP_SNAPSHOT_DRAW"] == "1"
+        for _ in 1...3 where !draws {
             let shot = Process()
             shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
             shot.arguments = ["-x", "-o", "-l", String(window.windowNumber), path]

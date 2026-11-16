@@ -12,6 +12,8 @@ final class Project {
     var sortIndex: Int = 0
     var createdAt: Date = Date.now
     var uuid: UUID = UUID()
+    /// Where the project's note was written in the Obsidian vault last time, to follow a rename.
+    var obsidianNote: String = ""
     @Relationship(deleteRule: .cascade, inverse: \Entry.project) var entries: [Entry] = []
 
     init(name: String) {
@@ -143,6 +145,12 @@ final class AppModel {
     var folderProblem: String?
     /// Replaces the root folder from Settings in the self-test.
     @ObservationIgnored var rootOverride: String?
+    /// Replaces the Obsidian vault from Settings in the self-test.
+    @ObservationIgnored var obsidianOverride: String?
+    @ObservationIgnored private var obsidianTask: Task<Void, Never>?
+    /// What Settings shows about the Obsidian notes: when they were written, or why not.
+    var obsidianStatus = ""
+    var obsidianFailed = false
     var confirmClearArchive = false
     /// The window floats above other apps' windows.
     var alwaysOnTop: Bool = UserDefaults.standard.bool(forKey: "alwaysOnTop") {
@@ -165,7 +173,146 @@ final class AppModel {
         if !Store.isOverridden { UserDefaults.standard.set(value, forKey: key) }
     }
 
-    private func save() { try? context.save() }
+    private func save() {
+        try? context.save()
+        scheduleObsidian()
+    }
+
+    // MARK: Obsidian
+
+    /// The vaults Obsidian knows on this Mac, the open one first.
+    static var knownVaults: [String] {
+        let file = URL.applicationSupportDirectory.appending(path: "obsidian/obsidian.json")
+        guard let data = try? Data(contentsOf: file),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let vaults = root["vaults"] as? [String: [String: Any]] else { return [] }
+        return vaults.values
+            .sorted { ($0["open"] as? Bool ?? false ? 0 : 1, $0["path"] as? String ?? "") < ($1["open"] as? Bool ?? false ? 0 : 1, $1["path"] as? String ?? "") }
+            .compactMap { $0["path"] as? String }
+    }
+
+    /// The vault folder to write into. Empty when the link is off or no vault is chosen.
+    var obsidianVault: String {
+        if let obsidianOverride { return obsidianOverride }
+        guard !Store.isOverridden, UserDefaults.standard.bool(forKey: "obsidian.enabled") else { return "" }
+        return UserDefaults.standard.string(forKey: "obsidian.vault") ?? ""
+    }
+
+    /// The folder for the project notes inside the vault.
+    private var obsidianFolder: String {
+        let name = (obsidianOverride == nil ? UserDefaults.standard.string(forKey: "obsidian.folder") : nil) ?? "Merkzettel"
+        return name.split(separator: "/").map { ObsidianNote.fileName(String($0)) }.joined(separator: "/")
+    }
+
+    /// Writes the notes a moment after the last change, so typing does not write on every step.
+    private func scheduleObsidian() {
+        guard !obsidianVault.isEmpty, obsidianOverride == nil else { return }
+        obsidianTask?.cancel()
+        obsidianTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            if !Task.isCancelled { self?.writeObsidian() }
+        }
+    }
+
+    /// The note file of a project in the vault, or nil while the link is off.
+    func obsidianFile(for project: Project) -> URL? {
+        guard !obsidianVault.isEmpty else { return nil }
+        return URL(fileURLWithPath: obsidianVault, isDirectory: true)
+            .appending(path: obsidianFolder, directoryHint: .isDirectory)
+            .appending(path: ObsidianNote.fileName(project.name) + ".md")
+    }
+
+    /// Writes one note per project into the vault. Files change only when their content does.
+    func writeObsidian() {
+        guard !obsidianVault.isEmpty else { return }
+        let manager = FileManager.default
+        let vault = URL(fileURLWithPath: obsidianVault, isDirectory: true)
+        guard manager.fileExists(atPath: vault.path) else {
+            obsidianFailed = true
+            obsidianStatus = "Der Vault-Ordner „\(vault.path)“ ist nicht erreichbar."
+            return
+        }
+        let folder = vault.appending(path: obsidianFolder, directoryHint: .isDirectory)
+        let pictures = folder.appending(path: "Anhänge", directoryHint: .isDirectory)
+        let includeArchive = obsidianOverride != nil || UserDefaults.standard.object(forKey: "obsidian.archive") as? Bool ?? true
+        let day = Date.ISO8601FormatStyle(timeZone: .current).year().month().day()
+        var used: Set<String> = []
+        var taken: Set<String> = []
+
+        func note(_ entry: Entry) -> ObsidianNote.Note {
+            var file: String?
+            if let data = entry.imageData {
+                let name = "Merkzettel-\(entry.uuid.uuidString).png"
+                let target = pictures.appending(path: name)
+                try? manager.createDirectory(at: pictures, withIntermediateDirectories: true)
+                if !manager.fileExists(atPath: target.path) { try? data.write(to: target) }
+                used.insert(name)
+                file = name
+            }
+            return ObsidianNote.Note(text: entry.text, imageFile: file)
+        }
+        func task(_ entry: Entry, archived: Bool) -> ObsidianNote.Task {
+            ObsidianNote.Task(title: entry.text, due: entry.dueDate?.formatted(day),
+                              done: archived ? (entry.archivedAt ?? .now).formatted(day) : nil,
+                              notes: (archived ? entry.allNotes : entry.openNotes).map(note))
+        }
+
+        do {
+            try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+            for project in projects {
+                // Two projects of one name get "Name" and "Name 2".
+                let base = ObsidianNote.fileName(project.name)
+                var name = base
+                var number = 2
+                while taken.contains(name.lowercased()) {
+                    name = "\(base) \(number)"
+                    number += 1
+                }
+                taken.insert(name.lowercased())
+                let file = folder.appending(path: name + ".md")
+                let archive = project.archive
+                let text = ObsidianNote.markdown(
+                    project: project.name, folder: project.hasFolder ? project.folderPath : nil,
+                    open: project.entries(.todo).map { task($0, archived: false) },
+                    loose: project.looseNotes.map(note),
+                    archived: includeArchive ? archive.filter { $0.kind == .todo }.map { task($0, archived: true) } : [],
+                    finished: includeArchive ? archive.filter { $0.kind == .note }.map {
+                        ObsidianNote.FinishedNote(note: note($0), taskTitle: $0.parent?.text, done: ($0.archivedAt ?? .now).formatted(day))
+                    } : [],
+                    includeArchive: includeArchive
+                )
+                // A renamed project takes its note along.
+                if !project.obsidianNote.isEmpty, project.obsidianNote != file.path,
+                   manager.fileExists(atPath: project.obsidianNote), !manager.fileExists(atPath: file.path) {
+                    try? manager.moveItem(atPath: project.obsidianNote, toPath: file.path)
+                }
+                if (try? String(contentsOf: file, encoding: .utf8)) != text {
+                    try text.write(to: file, atomically: true, encoding: .utf8)
+                }
+                if project.obsidianNote != file.path { project.obsidianNote = file.path }
+            }
+            try? context.save()
+            // Pictures no note shows any more go away. Only the app's own files are touched.
+            for name in (try? manager.contentsOfDirectory(atPath: pictures.path)) ?? []
+            where name.hasPrefix("Merkzettel-") && name.hasSuffix(".png") && !used.contains(name) {
+                try? manager.removeItem(at: pictures.appending(path: name))
+            }
+            obsidianFailed = false
+            obsidianStatus = "Zuletzt geschrieben: \(Date.now.formatted(.dateTime.day().month().year().hour().minute().locale(Locale(identifier: "de_DE"))))"
+        } catch {
+            obsidianFailed = true
+            obsidianStatus = "Schreiben in den Vault ist fehlgeschlagen: \(error.localizedDescription)"
+        }
+    }
+
+    /// Shows the project's note in Obsidian.
+    func openInObsidian(_ project: Project) {
+        guard let file = obsidianFile(for: project) else { return }
+        writeObsidian()
+        var link = URLComponents(string: "obsidian://open")
+        link?.queryItems = [URLQueryItem(name: "path", value: project.obsidianNote.isEmpty ? file.path : project.obsidianNote)]
+        if let url = link?.url { NSWorkspace.shared.open(url) }
+    }
 
     // MARK: Projects
 

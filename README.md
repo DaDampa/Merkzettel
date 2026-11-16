@@ -13,6 +13,7 @@ Kompakte macOS-App für Projektmanager: Projekte links, Aufgaben als Überschrif
 - **Termine:** Datumsfeld rechts neben der Aufgabe. Der Punkt „Termine" in der Seitenleiste zeigt alle datierten Aufgaben aller Projekte, gruppiert nach Überfällig, Heute, Nächste 7 Tage, Später. Ein Klick springt zur Aufgabe.
 - **Archiv:** der Kreis vor der Aufgabe fragt nach und schiebt sie mit ihren Notizen ins Archiv. Einzelne Notizen lassen sich ebenfalls abschließen. Aus dem Archiv lässt sich alles zurückholen.
 - **Archiv-Datei:** hat ein Projekt einen Ordner, schreibt die App das Archiv dort als `Merkzettel-Archiv.md`, Bilder daneben in `Merkzettel-Bilder`.
+- **Obsidian:** In den Einstellungen lässt sich ein Obsidian-Vault verknüpfen. Jedes Projekt wird dort eine Markdown-Notiz mit offenen Aufgaben als Kästchen (Termin im Format des Tasks-Plugins), Notizen, Bildern und Archiv. Die Richtung ist Merkzettel nach Obsidian.
 - **Immer im Vordergrund:** Stecknadel in der Symbolleiste (Umschalt-Command-T), optional auf allen Schreibtischen.
 - **Listen einfügen:** Umschalt-Command-V macht aus jeder Zeile der Zwischenablage eine Aufgabe.
 
@@ -108,6 +109,21 @@ Projektordner und Archiv-Datei
 - Hat ein Projekt einen Ordner, schreibt die App das Archiv bei jeder Änderung als
   „Merkzettel-Archiv.md" dorthin (Aufgabe als Überschrift mit Erledigt-Datum und Termin,
   Notizen als Liste), Bilder nach „Merkzettel-Bilder". Abschaltbar in den Einstellungen.
+
+Obsidian
+- Eigener Einstellungs-Reiter „Obsidian": Schalter „Projekte in Obsidian ablegen", Auswahl
+  des Vaults (bekannte Vaults aus ~/Library/Application Support/obsidian/obsidian.json,
+  sonst Ordner wählen), Ordner im Vault (Standard „Merkzettel"), Schalter „Archiv mit
+  aufnehmen", Anzeige des letzten Schreibzeitpunkts oder Fehlers, Knopf „Jetzt schreiben".
+- Je Projekt eine Markdown-Notiz im Vault: Frontmatter mit Tag „merkzettel", Hinweis, dass
+  die Notiz überschrieben wird, offene Aufgaben als „- [ ]" in Prioritätsreihenfolge mit
+  Termin als „📅 JJJJ-MM-TT", Notizen eingerückt darunter, Bilder als ![[Datei]] aus dem
+  Unterordner „Anhänge", danach das Archiv mit „- [x] … ✅ JJJJ-MM-TT".
+- Nur Richtung Merkzettel nach Obsidian. Etwa eine Sekunde nach jeder Änderung schreiben,
+  Dateien nur bei geändertem Inhalt anfassen. Umbenannte Projekte nehmen ihre Notiz mit.
+- „In Obsidian öffnen" im Rechtsklick-Menü des Projekts und als Menübefehl
+  (obsidian://open?path=…).
+- Ein Zahnrad unten in der Seitenleiste öffnet die Einstellungen.
 
 Technik
 - Datenmodell: Project (Name, Ordnerpfad, Reihenfolge) und Entry (Text, Art Aufgabe oder

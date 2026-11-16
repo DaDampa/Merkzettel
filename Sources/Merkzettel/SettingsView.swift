@@ -24,6 +24,7 @@ struct SettingsView: View {
         Form {
             switch tab {
             case .general: GeneralSettings()
+            case .obsidian: ObsidianSettings()
             case .appearance: AppearanceSettings()
             }
         }
@@ -35,13 +36,14 @@ struct SettingsView: View {
 
 /// The Settings tabs. Snapshot mode walks through every case.
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, appearance
+    case general, obsidian, appearance
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: "Allgemein"
+        case .obsidian: "Obsidian"
         case .appearance: "Darstellung"
         }
     }
@@ -49,8 +51,63 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .general: "gearshape"
+        case .obsidian: "books.vertical"
         case .appearance: "paintpalette"
         }
+    }
+}
+
+/// The link to an Obsidian vault: one Markdown note per project.
+struct ObsidianSettings: View {
+    @Environment(AppModel.self) private var model
+    @AppStorage("obsidian.enabled") private var enabled = false
+    @AppStorage("obsidian.vault") private var vault = ""
+    @AppStorage("obsidian.folder") private var folder = "Merkzettel"
+    @AppStorage("obsidian.archive") private var archive = true
+    private let known = AppModel.knownVaults
+
+    private func chooseVault() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Auswählen"
+        panel.message = "Wähle den Ordner deines Obsidian-Vaults."
+        if panel.runModal() == .OK, let url = panel.url { vault = url.path }
+    }
+
+    var body: some View {
+        Section {
+            Toggle("Projekte in Obsidian ablegen", isOn: $enabled)
+            Picker("Vault", selection: $vault) {
+                if vault.isEmpty { Text("Nicht gewählt").tag("") }
+                ForEach(known, id: \.self) { Text(($0 as NSString).lastPathComponent).tag($0) }
+                if !vault.isEmpty, !known.contains(vault) { Text((vault as NSString).lastPathComponent).tag(vault) }
+            }
+            .help(vault)
+            LabeledContent("Anderer Ordner") {
+                Button("Wählen …") { chooseVault() }
+            }
+            TextField("Ordner im Vault", text: $folder, prompt: Text("Merkzettel"))
+            Toggle("Archiv mit aufnehmen", isOn: $archive)
+        } header: {
+            Text("Verknüpfung")
+        } footer: {
+            Text("Jedes Projekt wird eine Notiz im gewählten Ordner des Vaults: offene Aufgaben als Kästchen mit Termin, Notizen darunter, Bilder in „Anhänge“. Die Notizen schreibt Merkzettel; was du in Obsidian daran änderst, wird überschrieben.")
+        }
+        Section {
+            LabeledContent("Stand") {
+                Text(model.obsidianStatus.isEmpty ? (enabled && !vault.isEmpty ? "Noch nicht geschrieben" : "Verknüpfung ist aus") : model.obsidianStatus)
+                    .foregroundStyle(model.obsidianFailed ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+            }
+            LabeledContent("Alle Projekte") {
+                Button("Jetzt schreiben") { model.writeObsidian() }
+                    .disabled(!enabled || vault.isEmpty)
+            }
+        }
+        .onChange(of: enabled) { model.writeObsidian() }
+        .onChange(of: vault) { model.writeObsidian() }
+        .onChange(of: archive) { model.writeObsidian() }
+        .onSubmit { model.writeObsidian() }
     }
 }
 
