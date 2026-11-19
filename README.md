@@ -9,7 +9,7 @@ Kompakte macOS-App für Projektmanager: Projekte links, Aufgaben als Überschrif
 - **Projekte:** neu anlegen oder bestehende Finder-Ordner wählen. In den Einstellungen lässt sich ein Stammordner festlegen; jedes neue Projekt bekommt dort einen Unterordner.
 - **Aufgaben:** jede Aufgabe ist eine Überschrift. Reihenfolge = Priorität, änderbar durch Ziehen am Griff rechts auf eine andere Aufgabe.
 - **Notizen:** hängen unter ihrer Aufgabe, in der Liste höchstens drei Zeilen, per Symbol in einem eigenen großen Fenster zu öffnen.
-- **Bilder:** als Notiz einfügen, aus der Zwischenablage, als Datei oder per Ziehen auf die Aufgabe.
+- **Bilder:** als Notiz einfügen, mit Command-V in einer Notiz oder Notizzeile, per Knopf aus der Zwischenablage, als Datei oder per Ziehen auf die Aufgabe.
 - **Termine:** Datumsfeld rechts neben der Aufgabe. Der Punkt „Termine" in der Seitenleiste zeigt alle datierten Aufgaben aller Projekte, gruppiert nach Überfällig, Heute, Nächste 7 Tage, Später. Ein Klick springt zur Aufgabe.
 - **Wochenübersicht:** Über der Terminliste stehen die aktuelle und die nächste Woche (Montag bis Sonntag, mit Kalenderwoche). An jedem Tag zeigt eine Zahl, wie viele Aufgaben fällig sind; ein Klick auf den Tag zeigt nur diese.
 - **Tastatur:** Umschalt-Return in einer Aufgabe springt in deren Notizzeile, Return bleibt bei den Aufgaben. Pfeil auf/ab wandert durch Aufgaben, Notizen und Eingabezeilen; ein offenes großes Notizfenster zeigt dabei immer die Notiz, in der der Cursor steht. Command-Return öffnet die aktive Notiz groß; im großen Notizfenster springen Wahl-Command-Pfeil links/rechts oder zwei kleine Pfeile zur vorigen und nächsten Notiz.
@@ -85,6 +85,10 @@ Projektseite
   eigenen, frei vergrößerbaren Fenster mit Texteditor.
 - Bilder als Notiz: Knopf neben „Notiz hinzufügen" fügt das Bild aus der Zwischenablage
   ein, sonst Dateiauswahl; außerdem Bilddateien oder Bilder auf die Aufgabe ziehen.
+  Command-V mit einem Bild in der Zwischenablage (und keinem Text) setzt es in die Notiz,
+  in der der Cursor steht (der Text wird zur Bildunterschrift), in der Notizzeile oder
+  Aufgabe als neue Bild-Notiz, im großen Notizfenster ebenso. Über den Tastatur-Monitor
+  abfangen, weil ein Textfeld ein Bild sonst ignoriert.
   Bild mit Bildunterschrift anzeigen, Doppelklick öffnet es groß.
 - Priorität: Aufgabe am Griff auf eine andere Aufgabe ziehen, sie nimmt deren Platz ein.
   Auf eine Aufgabe gezogener Text wird zur Notiz.

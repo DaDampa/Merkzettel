@@ -567,6 +567,9 @@ final class AppModel {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
             guard let self else { return event }
+            // Command-V with a picture on the clipboard: a text field would
+            // ignore it, so the picture goes into the note instead.
+            if event.charactersIgnoringModifiers?.lowercased() == "v", modifiers == .command, self.pastePicture() { return nil }
             // Option-Command-Left and -Right step through the notes in a large note window.
             if event.keyCode == 123 || event.keyCode == 124, modifiers == [.command, .option], self.frontNote != nil {
                 self.noteStepOffset = event.keyCode == 123 ? -1 : 1
@@ -589,6 +592,56 @@ final class AppModel {
             self.shiftReturn += 1
             return nil
         }
+    }
+
+    /// The picture on the clipboard, unless the clipboard holds text to paste.
+    /// A web address beside the picture (from a browser) does not count as text.
+    private var clipboardPicture: Data? {
+        let board = NSPasteboard.general
+        guard let png = ImageTools.png(from: board) else { return nil }
+        if let text = board.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty,
+           !(text.hasPrefix("http") || text.hasPrefix("file:")) || text.contains(where: \.isWhitespace) {
+            return nil
+        }
+        return png
+    }
+
+    private func entry(_ uuid: UUID) -> Entry? {
+        var descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.uuid == uuid })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
+    /// Puts the clipboard picture where the cursor is: into a text note that has
+    /// no picture yet (its text becomes the caption), else as a new picture note
+    /// of the task. In the large note window the window shows the result. False
+    /// when there is no picture or no place for it, so Command-V works as usual.
+    @discardableResult
+    func pastePicture() -> Bool {
+        let target: Entry?
+        if let field = focusedField {
+            if field.hasPrefix("add-") {
+                target = UUID(uuidString: String(field.dropFirst(4))).flatMap(entry)
+            } else {
+                target = UUID(uuidString: field).flatMap(entry)
+            }
+        } else if let front = frontNote {
+            target = entry(front)
+        } else {
+            target = nil
+        }
+        guard let target, let png = clipboardPicture, ImageTools.pixelSize(png) != nil else { return false }
+        if target.kind == .note, !target.hasImage {
+            target.imageData = png
+            target.thumbnail = ImageTools.thumbnail(png) ?? png
+            activeNote = target.uuid
+            save()
+            return true
+        }
+        let task = target.kind == .todo ? target : target.parent
+        guard let task, let project = task.project, let added = addImage(png, to: project, under: task) else { return false }
+        activeNote = added.uuid
+        return true
     }
 
     /// The ids of the text fields of the open list from top to bottom: per task

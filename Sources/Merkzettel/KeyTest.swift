@@ -123,6 +123,61 @@ enum KeyTest {
         } else {
             check("seed data has a task with two notes", false)
         }
+        // Pictures. The person's clipboard is saved first and put back after.
+        let board = NSPasteboard.general
+        let saved: [[NSPasteboard.PasteboardType: Data]] = (board.pasteboardItems ?? []).map { item in
+            Dictionary(uniqueKeysWithValues: item.types.compactMap { type in item.data(forType: type).map { (type, $0) } })
+        }
+        func putPicture() {
+            board.clearContents()
+            let item = NSPasteboardItem()
+            item.setData(ImageTools.sample(width: 120, height: 80, hue: 0.1), forType: .png)
+            // Clipboard managers like Textsammler skip what is marked transient.
+            item.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
+            board.writeObjects([item])
+        }
+        if let task = project.entries(.todo).first, let note = task.openNotes.first(where: { !$0.hasImage }) {
+            let before = task.openNotes.count
+            putPicture()
+            model.insertImage(to: project, under: task)
+            await pause()
+            check("the picture button adds the clipboard picture as a note", task.openNotes.count == before + 1 && task.openNotes.last?.hasImage == true)
+            if let added = task.openNotes.last, added.hasImage { model.delete(added) }
+
+            model.focusRequest = note.uuid.uuidString
+            await pause()
+            press("v", code: 9, .command)
+            await pause(1)
+            check("Command-V in a text note puts the picture into that note", note.hasImage && note.text.isEmpty == false,
+                  "image \(note.hasImage), notes \(task.openNotes.count)")
+            model.focusRequest = "add-\(task.uuid.uuidString)"
+            await pause()
+            let count = task.openNotes.count
+            press("v", code: 9, .command)
+            await pause(1)
+            check("Command-V in the note line adds a picture note", task.openNotes.count == count + 1 && task.openNotes.last?.hasImage == true,
+                  "\(count) -> \(task.openNotes.count)")
+            // Text on the clipboard still pastes as text.
+            board.clearContents()
+            board.setString("nur Text", forType: .string)
+            board.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
+            let pictures = task.openNotes.filter(\.hasImage).count
+            model.focusRequest = "add-\(task.uuid.uuidString)"
+            await pause()
+            press("v", code: 9, .command)
+            await pause()
+            check("Command-V with text on the clipboard adds no picture", task.openNotes.filter(\.hasImage).count == pictures)
+        } else {
+            check("seed data has a task with a text note", false)
+        }
+        board.clearContents()
+        let items = saved.map { values in
+            let item = NSPasteboardItem()
+            for (type, data) in values { item.setData(data, forType: type) }
+            return item
+        }
+        if !items.isEmpty { board.writeObjects(items) }
+
         print(failures == 0 ? "KEYTEST PASS" : "KEYTEST FAIL \(failures)")
         for window in NSApp.windows where window.canBecomeMain { window.close() }
         SelfTest.finish(code: failures == 0 ? 0 : 1)

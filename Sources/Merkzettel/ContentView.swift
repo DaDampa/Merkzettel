@@ -518,7 +518,7 @@ struct TodoBlock: View {
                         .labelStyle(.iconOnly)
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
-                        .help("Bild aus der Zwischenablage einfügen, sonst Bilddatei wählen")
+                        .help("Bild aus der Zwischenablage einfügen, sonst Bilddatei wählen. In einer Notiz geht auch Command-V.")
                 }
             }
             .padding(.leading, Space.xxl)
