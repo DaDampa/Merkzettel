@@ -147,6 +147,11 @@ final class AppModel {
     /// The note that had the cursor last: what Command-Return opens large,
     /// and what the large note window follows.
     var activeNote: UUID?
+    /// What is typed but not yet added in the "Notiz hinzufügen" lines, by field id.
+    @ObservationIgnored var addDrafts: [String: String] = [:]
+    /// Counts drafts taken over into a note; the field named by `takenDraft` empties itself.
+    var draftTaken = 0
+    @ObservationIgnored var takenDraft: String?
     /// The text field that should take the cursor, by its id. Set by the arrow keys.
     var focusRequest: String?
     /// The large note window that follows the cursor: the one opened or used last.
@@ -642,6 +647,31 @@ final class AppModel {
         guard let task, let project = task.project, let added = addImage(png, to: project, under: task) else { return false }
         activeNote = added.uuid
         return true
+    }
+
+    /// The note Command-Return opens large. In a "Notiz hinzufügen" line, or in
+    /// the title of a task without notes, it first adds the note (with what is
+    /// typed so far, maybe nothing), so the large window has one to show. An
+    /// empty note goes away again when its window closes.
+    func noteToOpen() -> UUID? {
+        guard let field = focusedField else { return activeNote }
+        let isAddLine = field.hasPrefix("add-")
+        guard let task = UUID(uuidString: isAddLine ? String(field.dropFirst(4)) : field).flatMap(entry) else { return activeNote }
+        if task.kind == .note { return task.uuid }
+        if !isAddLine, let first = task.openNotes.first { return first.uuid }
+        guard let project = task.project else { return activeNote }
+        let draft = (addDrafts["add-\(task.uuid.uuidString)"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let note = Entry(text: draft, kind: .note)
+        note.sortIndex = (task.notes.map(\.sortIndex).max() ?? -1) + 1
+        context.insert(note)
+        project.entries.append(note)
+        task.notes.append(note)
+        save()
+        takenDraft = "add-\(task.uuid.uuidString)"
+        addDrafts[takenDraft!] = nil
+        draftTaken += 1
+        activeNote = note.uuid
+        return note.uuid
     }
 
     /// The ids of the text fields of the open list from top to bottom: per task

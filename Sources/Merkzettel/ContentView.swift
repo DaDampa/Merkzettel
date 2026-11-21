@@ -879,6 +879,9 @@ struct AddField: View {
         }
         .font(task == nil ? .body : .callout)
         .onChange(of: focused) { model.fieldFocus(fieldID, focused) }
+        // Command-Return can turn the draft into a note and open it large.
+        .onChange(of: draft) { if task != nil { model.addDrafts[fieldID] = draft } }
+        .onChange(of: model.draftTaken) { if model.takenDraft == fieldID { draft = "" } }
         // Shift-Return: a new task is added and the cursor goes to its first
         // note line. In a note line it adds the note, like Return.
         .onChange(of: model.shiftReturn) {

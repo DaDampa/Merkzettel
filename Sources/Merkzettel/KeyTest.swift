@@ -123,6 +123,32 @@ enum KeyTest {
         } else {
             check("seed data has a task with two notes", false)
         }
+        // Command-Return in the empty note line of a new task: the note is made
+        // there and then, opens large, and goes away again if left empty.
+        window.makeKeyAndOrderFront(nil)
+        model.focusRequest = "new-task"
+        await pause()
+        type("Ohne Notiz")
+        await pause()
+        press(carriageReturn, code: 36, .shift)
+        await pause(1)
+        if let fresh = project.entries(.todo).last, fresh.text == "Ohne Notiz" {
+            check("Shift-Return puts the cursor in the new task's note line", model.focusedField == "add-\(fresh.uuid.uuidString)", model.focusedField ?? "none")
+            let windowsBefore = NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count
+            press(carriageReturn, code: 36, .command)
+            await pause(1.5)
+            let windowsAfter = NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count
+            check("Command-Return in the empty note line adds a note and opens it large",
+                  fresh.openNotes.count == 1 && windowsAfter == windowsBefore + 1 && model.activeNote == fresh.openNotes.first?.uuid,
+                  "notes \(fresh.openNotes.count), windows \(windowsBefore) -> \(windowsAfter)")
+            if let empty = fresh.openNotes.first {
+                model.finishEditing(empty)
+                await pause()
+                check("the empty note goes away when its window closes", fresh.openNotes.isEmpty)
+            }
+        } else {
+            check("Shift-Return added the task", false, "\(project.entries(.todo).map(\.text))")
+        }
         // Pictures. The person's clipboard is saved first and put back after.
         let board = NSPasteboard.general
         let saved: [[NSPasteboard.PasteboardType: Data]] = (board.pasteboardItems ?? []).map { item in

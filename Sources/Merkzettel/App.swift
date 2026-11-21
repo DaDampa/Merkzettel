@@ -88,7 +88,7 @@ struct NoteCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("Aktive Notiz groß öffnen") {
-                if let note = model.activeNote { openWindow(id: "note", value: note) }
+                if let note = model.noteToOpen() { openWindow(id: "note", value: note) }
             }
             .keyboardShortcut(.return, modifiers: .command)
             // Not disabled while no note is active: a menu built from a
